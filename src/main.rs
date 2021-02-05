@@ -417,48 +417,12 @@ fn main() {
 
                 // This anim oscillates smoothly between 0.0 and 1.0.
                 let anim = start_time.elapsed().as_secs_f32().sin() * 0.5 + 0.5;
-                //Scaling factor for triangles
-                let small = [0.33, 0.33];
-                // Each `PushConstants` struct in this slice represents the
-                // color, position, and scale of a triangle. This allows us to
-                // efficiently draw the same thing multiple times with varying
-                // parameters.
                 let triangles = &[
-                    // Red triangle
-                    PushConstants {
-                        color: [1.0, 0.0, 0.0, 1.0],
-                        pos: [-0.5, -0.5],
-                        scale: small,
-                    },
-                    // Green triangle
-                    PushConstants {
-                        color: [0.0, 1.0, 0.0, 1.0],
-                        pos: [0.0, -0.5],
-                        scale: small,
-                    },
-                    // Blue triangle
-                    PushConstants {
-                        color: [0.0, 0.0, 1.0, 1.0],
-                        pos: [0.5, -0.5],
-                        scale: small,
-                    },
-                    // Blue <-> cyan animated triangle
-                    PushConstants {
-                        color: [0.0, anim, 1.0, 1.0],
-                        pos: [-0.5, 0.5],
-                        scale: small,
-                    },
-                    // Down <-> up animated triangle
-                    PushConstants {
-                        color: [1.0, 1.0, 1.0, 1.0],
-                        pos: [0.0, 0.5 - anim * 0.5],
-                        scale: small,
-                    },
                     // Small <-> big animated triangle
                     PushConstants {
                         color: [1.0, 1.0, 1.0, 1.0],
-                        pos: [0.5, 0.5],
-                        scale: [0.33 + anim * 0.33, 0.33 + anim * 0.33],
+                        pos: [0.0, 0.0],
+                        scale: [0.33 + anim * 0.66, 0.33 + anim * 0.66],
                     },
                 ];
 
