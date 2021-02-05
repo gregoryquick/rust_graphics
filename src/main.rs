@@ -10,13 +10,15 @@ use std::mem::ManuallyDrop;
 use gfx_hal::{
     device::Device,
     window::{Extent2D, PresentationSurface, Surface},
+    queue::QueueFamily,
     Instance,
 };
 
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{WindowBuilder,Window}
+    window::{WindowBuilder,Window},
+    //window::Fullscreen
 };
 
 use shaderc::ShaderKind;
@@ -26,16 +28,20 @@ fn main() {
     let event_loop = EventLoop::new();
 
     const WINDOW_SIZE: [u32; 2] = [1024, 633];
+
+    let monitor = event_loop.primary_monitor().unwrap();
     //Do the stuff to deal with different pixel densities
     let (logical_window_size, physical_window_size) = {
         use winit::dpi::{LogicalSize, PhysicalSize};
         
-        let dpi = event_loop.primary_monitor().unwrap().scale_factor();
+        let dpi = monitor.scale_factor();
         let logical: LogicalSize<u32> = WINDOW_SIZE.into();
         let physical: PhysicalSize<u32> = logical.to_physical(dpi);
 
         (logical, physical)
     };
+
+    //println!("{}, {}", monitor.size().width, monitor.size().height);
     
     let mut surface_extent = Extent2D {
         width: physical_window_size.width,
@@ -45,39 +51,16 @@ fn main() {
     let window = WindowBuilder::new()
         .with_title("test_window")
         .with_inner_size(logical_window_size)
+        //.with_fullscreen(Some(Fullscreen::Borderless(Some(monitor))))
+        //.with_decorations(true)
         .build(&event_loop)
         .expect("Could not create a window!");
     
-    //Get drawing surface and adapter
-    let instance = backend::Instance::create("test_window", 1).unwrap();
-    let surface = unsafe{
-        instance.create_surface(&window).unwrap()
-    };
-    let adapter = instance.enumerate_adapters().remove(0);
+    //Get drawing surface and adapter    
+    let (instance, surface, adapter) = get_hooks(&window);
 
-    //Get actual gpu object and queue for it
-    let (device, mut queue_group) = {
-        use gfx_hal::queue::QueueFamily;
-
-        let queue_family = adapter
-            .queue_families
-            .iter()
-            .find(|family| {
-                surface.supports_queue_family(family) && family.queue_type().supports_graphics()
-            })
-            .expect("No compatible queue family found");
-
-        let mut gpu = unsafe {
-            use gfx_hal::adapter::PhysicalDevice;
-
-            adapter
-                .physical_device
-                .open(&[(queue_family, &[1.0])], gfx_hal::Features::empty())
-                .expect("Failed to open device")
-        };
-
-        (gpu.device, gpu.queue_groups.pop().unwrap())
-    };
+    //Get actual gpu object, queue for it, command pool
+    let (device, mut queue_group) = get_device(&surface,&adapter); //{
 
     //Make command pool to make comand buffers to send to gpu
     let (command_pool, mut command_buffer) = unsafe {
@@ -142,13 +125,27 @@ fn main() {
         }
     };
 
+    //Structure for data pushed to shader
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    struct PushConstants {
+        color: [f32; 4],
+        pos: [f32; 2],
+        scale: [f32; 2],
+    }
+
+
     //Empty pipeline layout
     let pipeline_layout = unsafe {
+        use gfx_hal::pso::ShaderStageFlags;
+
+        let push_constant_bytes = std::mem::size_of::<PushConstants>() as u32;
+
         device
-            .create_pipeline_layout(&[], &[])
+            .create_pipeline_layout(&[], &[(ShaderStageFlags::VERTEX, 0..push_constant_bytes)])
             .expect("Out of memory")
     };
-    
+        
     //Get shaders
     let vertex_shader = include_str!("shaders/triangle.vert");
     let fragment_shader = include_str!("shaders/triangle.frag");
@@ -269,9 +266,10 @@ fn main() {
     
     //Make and start window event loop
     let mut should_configure_swapchain = true;
+    let start_time = std::time::Instant::now();
     event_loop.run(move |event, _, control_flow| {
         
-        *control_flow = ControlFlow::Wait;
+        *control_flow = ControlFlow::Poll;
         
         match event{
             winit::event::Event::WindowEvent { event, .. } => match event {
@@ -304,6 +302,7 @@ fn main() {
             Event::RedrawRequested(_) => {
                 let res: &mut Resources<_> = &mut resource_holder.0;
                 let render_pass = &res.render_passes[0];
+                let pipeline_layout = &res.pipeline_layouts[0];
                 let pipeline = &res.pipelines[0];
                 
                 unsafe {
@@ -415,6 +414,61 @@ fn main() {
                         depth: 0.0..1.0,
                     }
                 };
+
+                // This anim oscillates smoothly between 0.0 and 1.0.
+                let anim = start_time.elapsed().as_secs_f32().sin() * 0.5 + 0.5;
+                //Scaling factor for triangles
+                let small = [0.33, 0.33];
+                // Each `PushConstants` struct in this slice represents the
+                // color, position, and scale of a triangle. This allows us to
+                // efficiently draw the same thing multiple times with varying
+                // parameters.
+                let triangles = &[
+                    // Red triangle
+                    PushConstants {
+                        color: [1.0, 0.0, 0.0, 1.0],
+                        pos: [-0.5, -0.5],
+                        scale: small,
+                    },
+                    // Green triangle
+                    PushConstants {
+                        color: [0.0, 1.0, 0.0, 1.0],
+                        pos: [0.0, -0.5],
+                        scale: small,
+                    },
+                    // Blue triangle
+                    PushConstants {
+                        color: [0.0, 0.0, 1.0, 1.0],
+                        pos: [0.5, -0.5],
+                        scale: small,
+                    },
+                    // Blue <-> cyan animated triangle
+                    PushConstants {
+                        color: [0.0, anim, 1.0, 1.0],
+                        pos: [-0.5, 0.5],
+                        scale: small,
+                    },
+                    // Down <-> up animated triangle
+                    PushConstants {
+                        color: [1.0, 1.0, 1.0, 1.0],
+                        pos: [0.0, 0.5 - anim * 0.5],
+                        scale: small,
+                    },
+                    // Small <-> big animated triangle
+                    PushConstants {
+                        color: [1.0, 1.0, 1.0, 1.0],
+                        pos: [0.5, 0.5],
+                        scale: [0.33 + anim * 0.33, 0.33 + anim * 0.33],
+                    },
+                ];
+
+                /// Returns a view of a struct as a slice of `u32`s.
+                unsafe fn push_constant_bytes<T>(push_constants: &T) -> &[u32] {
+                    let size_in_bytes = std::mem::size_of::<T>();
+                    let size_in_u32s = size_in_bytes / std::mem::size_of::<u32>();
+                    let start_ptr = push_constants as *const T as *const u32;
+                    std::slice::from_raw_parts(start_ptr, size_in_u32s)
+                }           
                 
                 //Use command buffer
                 unsafe {
@@ -444,9 +498,21 @@ fn main() {
 
                     //Set pipeline in use
                     command_buffer.bind_graphics_pipeline(pipeline);
-
-                    //Draw vertices 0-2 in instance 0
-                    command_buffer.draw(0..3, 0..1);
+                    
+                    //Draw each triangle in triangles
+                    for triangle in triangles {
+                        use gfx_hal::pso::ShaderStageFlags;
+                        
+                        //Push vertex shader constants
+                        command_buffer.push_graphics_constants(
+                            pipeline_layout,
+                            ShaderStageFlags::VERTEX,
+                            0,
+                            push_constant_bytes(triangle),
+                        );
+                         //Draw vertices 0-2 in instance 0
+                        command_buffer.draw(0..3, 0..1);
+                    }
 
                     //Finish renderpass
                     command_buffer.end_render_pass();
@@ -536,4 +602,34 @@ impl<B: gfx_hal::Backend> Drop for ResourceHolder<B> {
             instance.destroy_surface(surface);
         }
     }
+}
+
+fn get_hooks(window: &Window) -> (backend::Instance, backend::Surface, gfx_hal::adapter::Adapter<backend::Backend>) {
+    let instance = backend::Instance::create("test_window", 1).unwrap();
+    let surface = unsafe{
+        instance.create_surface(window).unwrap()
+    };
+    let adapter = instance.enumerate_adapters().remove(0);
+    (instance, surface, adapter)
+}
+
+fn get_device(surface: &backend::Surface, adapter: &gfx_hal::adapter::Adapter<backend::Backend>) -> (backend::Device, gfx_hal::queue::QueueGroup<backend::Backend>) {
+    let queue_family = adapter
+        .queue_families
+        .iter()
+        .find(|family| {
+            surface.supports_queue_family(family) && family.queue_type().supports_graphics()
+        })
+        .expect("No compatible queue family found");
+
+    let mut gpu = unsafe {
+        use gfx_hal::adapter::PhysicalDevice;
+
+        adapter
+            .physical_device
+            .open(&[(queue_family, &[1.0])], gfx_hal::Features::empty())
+            .expect("Failed to open device")
+    };
+
+    (gpu.device, gpu.queue_groups.pop().unwrap())
 }
