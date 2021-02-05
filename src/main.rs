@@ -420,9 +420,9 @@ fn main() {
                 let triangles = &[
                     // Small <-> big animated triangle
                     PushConstants {
-                        color: [1.0, 1.0, 1.0, 1.0],
+                        color: [1.0*anim, 1.0*anim, 1.0, 1.0],
                         pos: [0.0, 0.0],
-                        scale: [0.33 + anim * 0.66, 0.33 + anim * 0.66],
+                        scale: [1.0, 1.0],
                     },
                 ];
 
