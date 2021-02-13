@@ -1,14 +1,14 @@
 #version 450
+#
+layout(location=0) in vec3 a_position;
+layout(location=1) in vec3 a_color;
 
-const vec2 positions[3] = vec2[3](
-    vec2(0.0, 0.5),
-    vec2(-0.5, -0.5),
-    vec2(0.5, -0.5)
-);
+layout(location=0) out vec3 v_color;
+layout(location=1) out vec2 v_position;
 
-layout(location=0) out vec2 v_position;
 
 void main() {
-    v_position = positions[gl_VertexIndex];
-    gl_Position = vec4(v_position, 0.0, 1.0);
+    v_color = a_color;
+    v_position = vec2(a_position[0],a_position[1]);
+    gl_Position = vec4(a_position, 1.0);
 }

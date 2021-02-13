@@ -4,6 +4,47 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+use wgpu::util::DeviceExt;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+//Adds function to get information for reading this struct from a vertex buffer
+impl Vertex {
+    fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a> {
+        wgpu::VertexBufferDescriptor {
+            stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::InputStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttributeDescriptor {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float3,
+                },
+                wgpu::VertexAttributeDescriptor {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float3,
+                },
+            ],
+        }
+    }
+}
+
+
+//Object info
+//Vertices need to be counter-clockwise otherwise pipeline settings
+// will cull the part facing me
+const VERTICES: &[Vertex] = &[
+    Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
+    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
+    Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+];
+
 fn main() {
     env_logger::init();
     let event_loop = EventLoop::new();
@@ -73,6 +114,8 @@ struct State {
     swap_chain: wgpu::SwapChain,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+    num_vertices: u32,
 }
 
 impl State {
@@ -165,7 +208,7 @@ impl State {
             //Vertex buffer info
             vertex_state: wgpu::VertexStateDescriptor {
                 index_format: wgpu::IndexFormat::Uint16,
-                vertex_buffers: &[],
+                vertex_buffers: &[Vertex::desc()],
             },
             //Not using multisampling
             sample_count: 1,
@@ -175,6 +218,15 @@ impl State {
             alpha_to_coverage_enabled: false,
         });
 
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsage::VERTEX,
+        });
+
+        let num_vertices = VERTICES.len() as u32;
+        
+
         Self {
             surface,
             device,
@@ -183,6 +235,8 @@ impl State {
             swap_chain,
             size,
             render_pipeline,
+            vertex_buffer,
+            num_vertices,
         }
     }
     
@@ -233,9 +287,10 @@ impl State {
 
         //Set pipline as active
         render_pass.set_pipeline(&self.render_pipeline);
-
-        //draw vertices 0-2 with instance 0
-        render_pass.draw(0..3, 0..1);
+        //Read from all of vertex buffer into slot 0
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        //draw vertices 0-(self.num_vertices-1) with instance 0
+        render_pass.draw(0..self.num_vertices, 0..1);
 
         //Drop that encoder borrow
         drop(render_pass);
