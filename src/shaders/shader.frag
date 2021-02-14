@@ -6,6 +6,6 @@ layout(location=1) in vec2 v_position;
 layout(location=0) out vec4 f_color;
 
 void main() {
-    float alpha = 1.0 - 4.0*dot(v_position, v_position);
+    float alpha = 1.0 - 0.0*dot(v_position, v_position);
     f_color = vec4(alpha*v_color, 1.0);
 }

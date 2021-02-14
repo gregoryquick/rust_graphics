@@ -40,15 +40,29 @@ impl Vertex {
 //Vertices need to be counter-clockwise otherwise pipeline settings
 // will cull the part facing me
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.5, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
-    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
-    Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 1.0, 1.0] },
-    Vertex { position: [0.5, 0.5, 0.0], color: [0.0, 0.0, 1.0] },
+    Vertex { position: [-0.25, 0.25, 0.25], color: [1.0, 1.0, 1.0] },
+    Vertex { position: [-0.25, -0.25, 0.25], color: [1.0, 1.0, 0.0] },
+    Vertex { position: [0.25, -0.25, 0.25], color: [1.0, 0.0, 0.0] },
+    Vertex { position: [0.25, 0.25, 0.25], color: [1.0, 0.0, 1.0] },
+    Vertex { position: [0.25, -0.25, -0.25], color: [0.0, 0.0, 0.0] },
+    Vertex { position: [0.25, 0.25, -0.25], color: [0.0, 0.0, 1.0] },
+    Vertex { position: [-0.25, 0.25, -0.25], color: [0.0, 1.0, 1.0] },
+    Vertex { position: [-0.25, -0.25, -0.25], color: [0.0, 1.0, 0.0] },
 ];
 
 const INDICES: &[u16] = &[
     0, 1, 2,
     2, 3, 0,
+    3, 2, 4,
+    4, 5, 3,
+    0, 3, 5,
+    5, 6, 0,
+    6, 5, 4,
+    4, 7, 6,
+    0, 6, 7,
+    7, 1, 0,
+    7, 4, 2,
+    2, 1, 7,
 ];
 
 fn main() {
@@ -289,9 +303,9 @@ impl State {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
+                        r: 0.1,
+                        g: 0.1,
+                        b: 0.1,
                         a: 1.0,
                     }),
                     store: true,
