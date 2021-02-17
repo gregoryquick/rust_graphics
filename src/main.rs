@@ -6,6 +6,29 @@ use winit::{
 
 use wgpu::util::DeviceExt;
 
+mod camera;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct Uniforms {
+    // We can't use cgmath with bytemuck directly so we'll have
+    // to convert the Matrix4 into a 4x4 f32 array
+    view_proj: [[f32; 4]; 4],
+}
+
+impl Uniforms {
+    fn new() -> Self {
+        use cgmath::SquareMatrix;
+        Self {
+            view_proj: cgmath::Matrix4::identity().into(),
+        }
+    }
+
+    fn update_view_proj(&mut self, camera: &camera::Camera) {
+        self.view_proj = camera.build_view_projection_matrix().into();
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Vertex {
@@ -137,6 +160,10 @@ struct State {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer, 
     num_indices: u32,
+    camera: camera::Camera,
+    uniforms: Uniforms,
+    uniform_buffer: wgpu::Buffer,
+    uniform_bind_group: wgpu::BindGroup,
 }
 
 impl State {
@@ -173,6 +200,54 @@ impl State {
         };
         
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
+
+        //Make a camera
+        let camera = camera::Camera {
+            eye: (3.0, 2.0, 2.0).into(),
+            // have it look at the origin
+            target: (0.0, 0.0, 0.0).into(),
+            // which way is "up"
+            up: cgmath::Vector3::unit_y(),
+            aspect: sc_desc.width as f32 / sc_desc.height as f32,
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+        };
+
+        let mut uniforms = Uniforms::new();
+        uniforms.update_view_proj(&camera);
+
+        let uniform_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Uniform Buffer"),
+                contents: bytemuck::cast_slice(&[uniforms]),
+                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            }
+        );
+
+        //Fixed size bind group, only vertex shader needs it
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStage::VERTEX,
+                    ty: wgpu::BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("uniform_bind_group_layout"),
+            });
+
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(uniform_buffer.slice(..)),
+            }],
+            label: Some("uniform_bind_group"),
+        });
         
         //Load shaders
         let vs_src = include_str!("shaders/shader.vert");
@@ -187,7 +262,9 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[
+                &uniform_bind_group_layout,
+            ],
             push_constant_ranges: &[],
         });
         
@@ -266,6 +343,10 @@ impl State {
             vertex_buffer,
             index_buffer,
             num_indices,
+            camera,
+            uniforms,
+            uniform_buffer,
+            uniform_bind_group,
         }
     }
     
@@ -316,6 +397,8 @@ impl State {
 
         //Set pipline as active
         render_pass.set_pipeline(&self.render_pipeline);
+        //Expose camera info
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
         //Read from all of vertex buffer into slot 0
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         //Get the index buffer
