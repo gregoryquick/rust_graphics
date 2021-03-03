@@ -65,7 +65,7 @@ async fn run() {
         None, // Trace path
     ).await.unwrap();
 
-    let texture_size = 256u32;
+    let texture_size = 512u32;
 
     //Make everytinh needed for rendering
     let texture_generation_info = TextureGenerationPipeline::new(&device, texture_size);   
