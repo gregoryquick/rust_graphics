@@ -46,5 +46,5 @@ float pNoise(vec2 p, int res){
 
 void main() {
     float intensity = pNoise(v_tex_coords, 10);
-    f_color = vec4(1.0, 1.0, 1.0, intensity);
+    f_color = vec4(intensity, intensity, intensity, 1.0);
 }
