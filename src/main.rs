@@ -16,7 +16,7 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let mut frame_pipeline = block_on(WindowDisplayPipeline::new(&window));
+    let mut frame_pipeline = block_on(PipelineManager::new(&window));
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -47,7 +47,7 @@ fn main() {
                 match frame_pipeline.draw() {
                     Ok(_) => {},
                     //Recreate the swap_chain if lost
-                    Err(wgpu::SwapChainError::Lost) => frame_pipeline.resize(frame_pipeline.size),
+                    Err(wgpu::SwapChainError::Lost) => frame_pipeline.resize(frame_pipeline.display_pipeline.size),
                     //Quit if out of memory
                     Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                     Err(e) => eprintln!("{:?}", e),
@@ -59,8 +59,6 @@ fn main() {
             _ => {},
         }
     });
-
-    println!("Run complete")
 }
 
 #[repr(C)]
@@ -104,6 +102,126 @@ const INDICES: &[u16] = &[
     2, 3, 0,
 ];
 
+struct PipelineManager {
+    instance: wgpu::Instance,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+    display_pipeline: pipelines::WindowDisplayPipeline,
+}
+
+impl PipelineManager {
+    async fn new(window: &Window) -> Self {
+        //Create instance
+        let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+        //Create adapter, device, and queue
+        let adapter = instance.request_adapter(
+            &wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+            },
+        ).await.unwrap();
+        let (device, queue) = adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: None,
+                features: wgpu::Features::empty(),
+                limits: wgpu::Limits::default(),
+            },
+            None,
+        ).await.unwrap();
+
+        //Create vertex buffer
+        use wgpu::util::DeviceExt;
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(VERTICES),
+                usage: wgpu::BufferUsage::VERTEX,
+            }
+        );
+    
+        //Create index buffer
+        let index_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(INDICES),
+                usage: wgpu::BufferUsage::INDEX,
+            }
+        );
+        let num_indices = INDICES.len() as u32;
+
+        //Make pipeline for drawing on the window
+        let display_pipeline = pipelines::WindowDisplayPipeline::new(&device, &instance, window,Vertex::desc());
+
+        //Return
+        PipelineManager {
+            instance,
+            device,
+            queue,
+            vertex_buffer,
+            index_buffer,
+            num_indices,
+            display_pipeline,
+        }
+    }
+
+    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        self.display_pipeline.sc_desc.width = new_size.width;
+        self.display_pipeline.sc_desc.height = new_size.height;
+        self.display_pipeline.swap_chain = self.device.create_swap_chain(&self.display_pipeline.surface, &self.display_pipeline.sc_desc);
+    }
+
+    fn draw(&mut self) -> Result<(), wgpu::SwapChainError> {
+        //Get current frame
+        let frame = self.display_pipeline.swap_chain.get_current_frame()?.output;
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Frame Encoder"),
+        });
+
+        //Create the render pass (Mutably borrows encoder)
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                attachment: &frame.view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.1,
+                        g: 0.1,
+                        b: 0.1,
+                        a: 1.0,
+                    }),
+                    store: true,
+                },
+            }],
+            depth_stencil_attachment: None,
+        });
+
+        //Set pipline as active
+        render_pass.set_pipeline(&self.display_pipeline.render_pipeline);
+        //Create vertex buffer in slot 0
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        //Load index buffer
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        //Draw using slot 0
+        render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+
+        //Drop the encoder borrow
+        drop(render_pass);
+
+        //Finish and submit commands
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        //Return ok
+        Ok(())
+    }
+}
+
+
+#[allow(unused_must_use)]
 async fn run() {
     //Create instance
     let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
@@ -186,7 +304,6 @@ async fn run() {
 
     //Set pipline as active
     render_pass.set_pipeline(&texture_generation_info.render_pipeline);
-    
     //Read from all of vertex buffer into slot 0
     render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
     //Read the index buffer into slot 0?
@@ -239,198 +356,3 @@ async fn run() {
     //Save image
     image_buffer.save("output/image.png").unwrap();
 }
-
-struct WindowDisplayPipeline {
-    surface: wgpu::Surface,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    sc_desc: wgpu::SwapChainDescriptor,
-    swap_chain: wgpu::SwapChain,
-    size: winit::dpi::PhysicalSize<u32>,
-    render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    num_indices: u32,
-}
-
-impl WindowDisplayPipeline {
-    async fn new(window: &Window) -> Self {
-        let size = window.inner_size();
-        let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
-        let surface = unsafe { instance.create_surface(window) };
-        //Create adapter, device, and queue
-        let adapter = instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-            },
-        ).await.unwrap();
-        let (device, queue) = adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                features: wgpu::Features::empty(),
-                limits: wgpu::Limits::default(),
-            },
-            None, // Trace path
-        ).await.unwrap();
-        
-        //Create swapchain
-        let sc_desc = wgpu::SwapChainDescriptor {
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-        };
-        
-        let swap_chain = device.create_swap_chain(&surface, &sc_desc);
-
-        //Load shaders
-        let vs_src = include_str!("shaders/window_display/shader.vert");
-        let fs_src = include_str!("shaders/window_display/shader.frag");
-        let mut compiler = shaderc::Compiler::new().unwrap();
-        let vs_spirv = compiler.compile_into_spirv(vs_src, shaderc::ShaderKind::Vertex, "shader.vert", "main", None).unwrap();
-        let fs_spirv = compiler.compile_into_spirv(fs_src, shaderc::ShaderKind::Fragment, "shader.frag", "main", None).unwrap();
-        let vs_module_desc = wgpu::ShaderModuleDescriptor{
-            label: None,
-            source: wgpu::util::make_spirv(&vs_spirv.as_binary_u8()),
-            flags: wgpu::ShaderFlags::empty(),
-        };
-        let fs_module_desc = wgpu::ShaderModuleDescriptor{
-            label: None,
-            source: wgpu::util::make_spirv(&fs_spirv.as_binary_u8()),
-            flags: wgpu::ShaderFlags::empty(),
-        };
-        let vs_module = device.create_shader_module(&vs_module_desc);
-        let fs_module = device.create_shader_module(&fs_module_desc);
-
-        //Create pipeline
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-              module: &vs_module,
-              entry_point: "main",
-              buffers: &[Vertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module:&fs_module,
-                entry_point: "main",
-                targets: &[
-                    wgpu::ColorTargetState {
-                        format: sc_desc.format,
-                        color_blend: wgpu::BlendState::REPLACE,
-                        alpha_blend: wgpu::BlendState::REPLACE,
-                        write_mask: wgpu::ColorWrite::ALL,
-                    },
-                ],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::Back,
-                polygon_mode: wgpu::PolygonMode::Fill,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-        });
-
-        //Create vertex buffer
-        use wgpu::util::DeviceExt;
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(VERTICES),
-                usage: wgpu::BufferUsage::VERTEX,
-            }
-        );
-    
-        //Create index buffer
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(INDICES),
-                usage: wgpu::BufferUsage::INDEX,
-            }
-        );
-        let num_indices = INDICES.len() as u32;
-
-        WindowDisplayPipeline {
-            surface,
-            device,
-            queue,
-            sc_desc,
-            swap_chain,
-            size,
-            render_pipeline,
-            vertex_buffer,
-            index_buffer,
-            num_indices,
-        }
-    }
-
-    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        self.sc_desc.width = new_size.width;
-        self.sc_desc.height = new_size.height;
-        self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
-    }
-
-    fn draw(&mut self) -> Result<(), wgpu::SwapChainError> {
-        //Get current frame
-        let frame = self.swap_chain.get_current_frame()?.output;
-
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Frame Encoder"),
-        });
-
-        //Create the render pass (Mutably borrows encoder)
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: &frame.view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.1,
-                        g: 0.1,
-                        b: 0.1,
-                        a: 1.0,
-                    }),
-                    store: true,
-                },
-            }],
-            depth_stencil_attachment: None,
-        });
-
-        //Set pipline as active
-        render_pass.set_pipeline(&self.render_pipeline);
-        //Create vertex buffer in slot 0
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        //Load index buffer
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        //Draw using slot 0
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
-
-        //Drop the encoder borrow
-        drop(render_pass);
-
-        //Finish and submit commands
-        self.queue.submit(std::iter::once(encoder.finish()));
-
-        //Return ok
-        Ok(())
-    }
-}
-
