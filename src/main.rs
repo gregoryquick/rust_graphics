@@ -91,23 +91,79 @@ impl Vertex {
 }
 
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [-1.00, 1.00, 0.0], tex_coords: [0.0, 0.0,] },
-    Vertex { position: [-1.00, -1.00, 0.0], tex_coords: [0.0, 1.0] },
-    Vertex { position: [1.00, -1.00, 0.0], tex_coords: [1.0, 1.0] },
-    Vertex { position: [1.00, 1.00, 0.0], tex_coords: [1.0, 0.0] },
+    Vertex { position: [0.000, 0.086, 0.00], tex_coords: [0.5, 0.0,] },
+    Vertex { position: [-0.100, -0.086, 0.00], tex_coords: [0.0, 1.0] },
+    Vertex { position: [0.100, -0.086, 0.00], tex_coords: [1.0, 1.0] },
 ];
 
 const INDICES: &[u16] = &[
     0, 1, 2,
-    2, 3, 0,
 ];
 
+///Enitity instance struct
+struct Instance {
+    position: cgmath::Vector3<f32>,
+    rotation: cgmath::Quaternion<f32>,
+}
+
+impl Instance {
+    fn to_raw(&self) -> InstanceRaw {
+        InstanceRaw {
+            model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)).into(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct InstanceRaw {
+    model: [[f32; 4]; 4],
+}
+
+impl InstanceRaw {
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        use std::mem;
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
+            step_mode: wgpu::InputStepMode::Instance,
+            attributes: &[
+                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
+                // for each vec4. We don't have to do this in code though.
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float4,
+                },
+            ],
+        }
+    }
+}
+
+
+///For actualy using pipelines
 struct PipelineManager {
     device: wgpu::Device,
     queue: wgpu::Queue,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
+    instances: Vec<Instance>,
+    instance_buffer: wgpu::Buffer,
     display_pipeline: pipelines::WindowDisplayPipeline,
 }
 
@@ -151,9 +207,52 @@ impl PipelineManager {
         );
         let num_indices = INDICES.len() as u32;
 
-        //Make pipeline for drawing on the window
-        let display_pipeline = pipelines::WindowDisplayPipeline::new(&device, &instance, window,Vertex::desc());
 
+        //Create starting triangles
+        let instances =  vec![
+            Instance {
+                position: cgmath::Vector3::new(0.0, 0.0, 0.0),
+                rotation: {
+                    use std::f32::consts::PI;
+                    let rotation_angle: f32 = PI/2.0;
+                    let eval: f32 = rotation_angle/2.0;
+                    let w = eval.cos();
+                    let B = eval.sin();
+                    cgmath::Quaternion::new(w,0.0,0.0,B)
+                },
+            },
+            Instance {
+                position: cgmath::Vector3::new(-0.5, 0.0, 0.0),
+                rotation: cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0),
+            },
+            Instance {
+            position: cgmath::Vector3::new(0.0, 0.5, 0.0),
+                rotation: {
+                    use std::f32::consts::PI;
+                    let rotation_angle: f32 = PI;
+                    let eval: f32 = rotation_angle/2.0;
+                    let w = eval.cos();
+                    let B = eval.sin();
+                    cgmath::Quaternion::new(w,0.0,0.0,B)
+                },
+            },
+
+        ];
+
+        //Create buffer for storing triangle instances
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                usage: wgpu::BufferUsage::VERTEX,
+            }
+        );
+
+        //Make pipeline for drawing on the window
+        let display_pipeline = pipelines::WindowDisplayPipeline::new(&device, &instance, window, &[Vertex::desc(), InstanceRaw::desc()]);
+
+        
         //Return
         PipelineManager {
             device,
@@ -161,6 +260,8 @@ impl PipelineManager {
             vertex_buffer,
             index_buffer,
             num_indices,
+            instances,
+            instance_buffer,
             display_pipeline,
         }
     }
@@ -203,9 +304,11 @@ impl PipelineManager {
         //Create vertex buffer in slot 0
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         //Load index buffer
+        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+        //Load index buffer
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         //Draw using slot 0
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+        render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
 
         //Drop the encoder borrow
         drop(render_pass);

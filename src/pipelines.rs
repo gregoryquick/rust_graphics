@@ -12,7 +12,7 @@ use winit::{
 };
 
 impl WindowDisplayPipeline {
-     pub fn new(device: &wgpu::Device, instance: &wgpu::Instance, window: &Window, vertex_desc: wgpu::VertexBufferLayout) -> Self {
+     pub fn new(device: &wgpu::Device, instance: &wgpu::Instance, window: &Window, vertex_layouts: &[wgpu::VertexBufferLayout]) -> Self {
         //Get window hooks and information
         let size = window.inner_size();
         let surface = unsafe { instance.create_surface(window) };
@@ -59,7 +59,7 @@ impl WindowDisplayPipeline {
             vertex: wgpu::VertexState {
               module: &vs_module,
               entry_point: "main",
-              buffers: &[vertex_desc],
+              buffers: vertex_layouts,
             },
             fragment: Some(wgpu::FragmentState {
                 module:&fs_module,
