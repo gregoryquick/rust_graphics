@@ -16,9 +16,44 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let mut frame_pipeline = block_on(PipelineManager::new(&window));
+
+    //Create starting triangles
+    use std::f32::consts::PI;
+    let instances =  vec![
+        Instance {
+            position: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            velocity: cgmath::Vector3::new(-1.0, 0.0, 0.0),
+            rotation: {
+                let rotation_angle: f32 = PI/2.0;
+                let eval: f32 = rotation_angle/2.0;
+                cgmath::Quaternion::new(eval.cos(),0.0,0.0,eval.sin())
+            },
+        },
+        Instance {
+            position: cgmath::Vector3::new(-0.5, 0.0, 0.0),
+            velocity: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            rotation: {
+                let rotation_angle: f32 = 0.0;
+                let eval: f32 = rotation_angle/2.0;
+                cgmath::Quaternion::new(eval.cos(),0.0,0.0,eval.sin())
+            },
+        },
+        Instance {
+            position: cgmath::Vector3::new(0.0, 0.5, 0.0),
+            velocity: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            rotation: {
+                let rotation_angle: f32 = PI;
+                let eval: f32 = rotation_angle/2.0;
+                cgmath::Quaternion::new(eval.cos(),0.0,0.0,eval.sin())
+            },
+        },
+
+    ];
+
+    let mut frame_pipeline = block_on(PipelineManager::new(&window, &instances));
 
     event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
         match event {
             Event::WindowEvent {
                 ref event,
@@ -54,11 +89,29 @@ fn main() {
                 }
             },
             Event::MainEventsCleared => {
+                let instances = update_intances(frame_pipeline.instances);
+                frame_pipeline.update(&instances);;
                 window.request_redraw();
             },
             _ => {},
         }
     });
+}
+
+fn update_intances(instances: &Vec<Instance>) -> Vec<Instance> {
+    let step_size = 0.10f32;
+    fn step(instance: &Instance, step_size: f32) -> Instance {
+        let new_pos = instance.position + instance.velocity * step_size;
+        let new_vel = instance.velocity;
+        let new_rot = instance.rotation;
+        Instance {
+            position: new_pos,
+            velocity: new_vel,
+            rotation: new_rot,
+        }
+    }
+    //Need a closure
+    instances.iter().map(|instance| step(instance, step_size)).collect::<Vec<_>>()
 }
 
 #[repr(C)]
@@ -103,6 +156,7 @@ const INDICES: &[u16] = &[
 ///Enitity instance struct
 struct Instance {
     position: cgmath::Vector3<f32>,
+    velocity: cgmath::Vector3<f32>,
     rotation: cgmath::Quaternion<f32>,
 }
 
@@ -162,13 +216,14 @@ struct PipelineManager {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
-    instances: Vec<Instance>,
+    instances: &Vec<Instance>,
+    num_instances: usize,
     instance_buffer: wgpu::Buffer,
     display_pipeline: pipelines::WindowDisplayPipeline,
 }
 
 impl PipelineManager {
-    async fn new(window: &Window) -> Self {
+    async fn new(window: &Window, initial_instances: &Vec<Instance>) -> Self {
         //Create instance
         let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
         //Create adapter, device, and queue
@@ -207,40 +262,9 @@ impl PipelineManager {
         );
         let num_indices = INDICES.len() as u32;
 
-
-        //Create starting triangles
-        let instances =  vec![
-            Instance {
-                position: cgmath::Vector3::new(0.0, 0.0, 0.0),
-                rotation: {
-                    use std::f32::consts::PI;
-                    let rotation_angle: f32 = PI/2.0;
-                    let eval: f32 = rotation_angle/2.0;
-                    let w = eval.cos();
-                    let B = eval.sin();
-                    cgmath::Quaternion::new(w,0.0,0.0,B)
-                },
-            },
-            Instance {
-                position: cgmath::Vector3::new(-0.5, 0.0, 0.0),
-                rotation: cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0),
-            },
-            Instance {
-            position: cgmath::Vector3::new(0.0, 0.5, 0.0),
-                rotation: {
-                    use std::f32::consts::PI;
-                    let rotation_angle: f32 = PI;
-                    let eval: f32 = rotation_angle/2.0;
-                    let w = eval.cos();
-                    let B = eval.sin();
-                    cgmath::Quaternion::new(w,0.0,0.0,B)
-                },
-            },
-
-        ];
-
         //Create buffer for storing triangle instances
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let num_instances = initial_instances.len();
+        let instance_data = initial_instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Index Buffer"),
@@ -260,7 +284,8 @@ impl PipelineManager {
             vertex_buffer,
             index_buffer,
             num_indices,
-            instances,
+            instances: initial_instances,
+            num_instances,
             instance_buffer,
             display_pipeline,
         }
@@ -270,6 +295,21 @@ impl PipelineManager {
         self.display_pipeline.sc_desc.width = new_size.width;
         self.display_pipeline.sc_desc.height = new_size.height;
         self.display_pipeline.swap_chain = self.device.create_swap_chain(&self.display_pipeline.surface, &self.display_pipeline.sc_desc);
+    }
+
+    fn update(&mut self, new_instances: &Vec<Instance>) {
+        self.instances = new_instances;
+        self.num_instances = self.instances.len();
+        let instance_data = self.instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        use wgpu::util::DeviceExt;
+        self.instance_buffer = self.device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                usage: wgpu::BufferUsage::VERTEX,
+            }
+        );
+
     }
 
     fn draw(&mut self) -> Result<(), wgpu::SwapChainError> {
@@ -308,7 +348,7 @@ impl PipelineManager {
         //Load index buffer
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         //Draw using slot 0
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+        render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances as _);
 
         //Drop the encoder borrow
         drop(render_pass);
