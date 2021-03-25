@@ -66,9 +66,9 @@ impl Pose {
 
 //Creates buffers for boid drawing info
 pub struct BoidBufferBuilder{
-    vertex_data: Vec<Vertex>,
-    index_data: Vec<u32>,
-    current_boid: u32,
+    pub vertex_data: Vec<Vertex>,
+    pub index_data: Vec<u32>,
+    pub current_boid: u32,
 }
 
 impl BoidBufferBuilder{
@@ -132,9 +132,9 @@ impl StagingBuffer {
         use wgpu::util::{BufferInitDescriptor, DeviceExt};
         StagingBuffer {
             buffer: device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Staging Buffer"),
                 contents: bytemuck::cast_slice(data),
                 usage: wgpu::BufferUsage::COPY_SRC,
-                label: Some("Staging Buffer"),
             }),
             size: size_of_slice(data) as wgpu::BufferAddress,
         }

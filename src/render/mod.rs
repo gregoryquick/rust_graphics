@@ -139,37 +139,12 @@ impl Render {
 
         //TODO Load state data into buffers
         let num_indices = {
-            let (stg_vertex, stg_index, num_indices) = BoidBufferBuilder::new().push_boid().build(&self.device);
-            //stg_vertex.copy_to_buffer(&mut encoder, &self.vertex_buffer);
-
-            let VERTICES: &[Vertex] = &[
-                Vertex {position: [0.000, 0.086].into()},
-                Vertex {position: [-0.100, -0.086].into()},
-                Vertex {position: [0.100, -0.086].into()},
-            ];
-            
             use wgpu::util::{BufferInitDescriptor, DeviceExt};
-            self.vertex_buffer = self.device.create_buffer_init(
-                &wgpu::util::BufferInitDescriptor {
-                    label: Some("Vertex Buffer"),
-                    contents: bytemuck::cast_slice(VERTICES),
-                    usage: wgpu::BufferUsage::VERTEX,
-                }
-            );            
-
-            let INDICES: &[u16] = &[0, 1, 2];
+            let (stg_vertex, stg_index, num_indices) = BoidBufferBuilder::new().push_boid().build(&self.device);
+            stg_vertex.copy_to_buffer(&mut encoder, &self.vertex_buffer);
+            stg_index.copy_to_buffer(&mut encoder, &self.index_buffer);
             
-            //stg_index.copy_to_buffer(&mut encoder, &self.index_buffer);
-            self.index_buffer = self.device.create_buffer_init(
-                &wgpu::util::BufferInitDescriptor {
-                    label: Some("Index Buffer"),
-                    contents: bytemuck::cast_slice(INDICES),
-                    usage: wgpu::BufferUsage::INDEX,
-                }
-            );
-            
-            //num_indices
-            3
+            num_indices
         };
 
         match self.swap_chain.get_current_frame() {
@@ -196,7 +171,7 @@ impl Render {
                 //let num_indices = 0;
                 if num_indices != 0 {
                     render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     render_pass.set_pipeline(&self.pipeline);
                     render_pass.draw_indexed(0..num_indices, 0, 0..1);
                 }
