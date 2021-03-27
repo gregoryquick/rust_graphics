@@ -1,11 +1,13 @@
 use crate::state;
 
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
+
 pub const U32_SIZE: wgpu::BufferAddress = std::mem::size_of::<u32>() as wgpu::BufferAddress;
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
     #[allow(dead_code)]
-    pub position: cgmath::Vector2<f32>,
+    pub position: cgmath::Vector4<f32>,
 }
 
 unsafe impl bytemuck::Pod for Vertex {}
@@ -43,13 +45,13 @@ impl BoidBufferBuilder{
         //Add vertices for boid
         let pose_matrix = cgmath::Matrix4::from_translation(boid.position) * cgmath::Matrix4::from(boid.rotation);
         
-        let vertex_positions: &[cgmath::Vector2<f32>; 3] = &[
-            [0.000, 0.086,].into(),
-            [-0.100, -0.086,].into(),
-            [0.100, -0.086,].into(),
+        let vertex_positions: &[cgmath::Vector4<f32>; 3] = &[
+            [0.000, 0.086, 0.0, 1.0].into(),
+            [-0.100, -0.086, 0.0, 1.0].into(),
+            [0.100, -0.086, 0.0, 1.0].into(),
         ];
 
-        let new_vertices: &[Vertex] = &vertex_positions.map(|x| Vertex {position: x,});
+        let new_vertices: &[Vertex] = &vertex_positions.map(|x| Vertex {position: pose_matrix * x,});
         
         self.vertex_data.extend(new_vertices);
         
@@ -87,10 +89,8 @@ pub struct StagingBuffer {
     size: wgpu::BufferAddress,
 }
 
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
 impl StagingBuffer {
     pub fn new<T: bytemuck::Pod + Sized>(device: &wgpu::Device, data: &[T]) -> StagingBuffer {
-        use wgpu::util::{BufferInitDescriptor, DeviceExt};
         StagingBuffer {
             buffer: device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("Staging Buffer"),

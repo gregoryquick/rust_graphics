@@ -27,11 +27,12 @@ fn main() {
     let mut state = state::State{
         boids: Vec::new(),
     };
+    use std::f32::consts::PI;
     let initial_boids: &[state::Boid] = &[
         state::Boid{
-            position: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            position: cgmath::Vector3::new(0.0, 0.5, 0.0),
             rotation: {
-                let rotation_angle: f32 = 0.0;
+                let rotation_angle: f32 = PI;
                 let eval: f32 = rotation_angle/2.0;
                 cgmath::Quaternion::new(eval.cos(),0.0,0.0,eval.sin())
             }
