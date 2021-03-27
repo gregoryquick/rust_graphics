@@ -31,11 +31,27 @@ fn main() {
     let initial_boids: &[state::Boid] = &[
         state::Boid{
             position: cgmath::Vector3::new(0.0, 0.5, 0.0),
+            velocity: cgmath::Vector3::new(0.0, -1.0, 0.0),
             rotation: {
                 let rotation_angle: f32 = PI;
                 let eval: f32 = rotation_angle/2.0;
                 cgmath::Quaternion::new(eval.cos(),0.0,0.0,eval.sin())
-            }
+            },
+            angular_velocity: {
+                cgmath::Quaternion::new(0.0,0.0,0.0,0.0)
+            },
+        },
+        state::Boid{
+            position: cgmath::Vector3::new(-0.3, 0.2, 0.0),
+            velocity: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            rotation: {
+                let rotation_angle: f32 = -PI/2.0;
+                let eval: f32 = rotation_angle/2.0;
+                cgmath::Quaternion::new(eval.cos(),0.0,0.0,eval.sin())
+            },
+            angular_velocity: {
+                cgmath::Quaternion::new(0.0,0.0,0.0,1.0)
+            },
         },
     ];
 
@@ -63,7 +79,11 @@ fn main() {
                 }
             },
             Event::RedrawRequested(_) => {
+                let delta_t: f32 = 0.001;
+                //println!("Stepped {}", delta_t);
+                state::State::update(&mut state, &delta_t);
                 render.draw(&state);
+                window.request_redraw();
             },
             _ => {},
         }
