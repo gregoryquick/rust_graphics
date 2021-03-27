@@ -22,48 +22,6 @@ impl Vertex {
     };
 }
 
-//Location and rotation matrix for 3d space
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Pose{
-    pose: [[f32; 4]; 4],
-}
-
-impl Pose {
-    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        use std::mem;
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<Pose>() as wgpu::BufferAddress,
-            step_mode: wgpu::InputStepMode::Instance,
-            attributes: &[
-                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
-                // for each vec4. We don't have to do this in code though.
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Float4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 4,
-                    format: wgpu::VertexFormat::Float4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float4,
-                },
-            ],
-        }
-    }
-}
-
-
 //Creates buffers for boid drawing info
 pub struct BoidBufferBuilder{
     pub vertex_data: Vec<Vertex>,
@@ -80,26 +38,29 @@ impl BoidBufferBuilder{
         }
     }
 
-    //pub fn push_boid(mut self, boid: &state::Boid) -> Self {
-    pub fn push_boid(mut self) -> Self {
+    pub fn push_boid(mut self, boid: &state::Boid) -> Self {
+    //pub fn push_boid(mut self) -> Self {
         //Add vertices for boid
-        self.vertex_data.extend(&[
-            Vertex {
-                position: [0.000, 0.086,].into()
-            },
-            Vertex {
-                position: [-0.100, -0.086,].into()
-            },
-            Vertex {
-                position: [0.100, -0.086,].into()
-            },
-        ]);
+        let pose_matrix = cgmath::Matrix4::from_translation(boid.position) * cgmath::Matrix4::from(boid.rotation);
+        
+        let vertex_positions: &[cgmath::Vector2<f32>; 3] = &[
+            [0.000, 0.086,].into(),
+            [-0.100, -0.086,].into(),
+            [0.100, -0.086,].into(),
+        ];
+
+        let new_vertices: &[Vertex] = &vertex_positions.map(|x| Vertex {position: x,});
+        
+        self.vertex_data.extend(new_vertices);
+        
         //Added index info for boid
-        self.index_data.extend(&[
+        let new_indices = &[
             self.current_boid * 3 + 0,
             self.current_boid * 3 + 1,
             self.current_boid * 3 + 2,
-        ]);
+        ];
+        
+        self.index_data.extend(new_indices);
         self.current_boid += 1;
 
         self

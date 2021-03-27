@@ -1,3 +1,4 @@
+#![feature(array_map)]
 mod state;
 mod render;
 
@@ -23,9 +24,21 @@ fn main() {
     
     let mut render = block_on(render::Render::new(&window, &video_mode));
 
-    let state = state::State{
+    let mut state = state::State{
         boids: Vec::new(),
     };
+    let initial_boids: &[state::Boid] = &[
+        state::Boid{
+            position: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            rotation: {
+                let rotation_angle: f32 = 0.0;
+                let eval: f32 = rotation_angle/2.0;
+                cgmath::Quaternion::new(eval.cos(),0.0,0.0,eval.sin())
+            }
+        },
+    ];
+
+    state.boids.extend(initial_boids);
 
     //Event loop!
     event_loop.run(move |event, _, control_flow| {

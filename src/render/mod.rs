@@ -83,8 +83,7 @@ impl Render {
         };
         
         //Create pipeline
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Display Pipeline Layout"),
             bind_group_layouts: &[],
             push_constant_ranges: &[],
@@ -101,14 +100,14 @@ impl Render {
         //Create buffers
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: Vertex::SIZE * 4 * 3,
+            size: Vertex::SIZE* 3,
             usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
         });
 
         let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: U32_SIZE * 6 * 3,
+            size: U32_SIZE * 3,
             usage: wgpu::BufferUsage::INDEX | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
         });
@@ -139,8 +138,12 @@ impl Render {
 
         //TODO Load state data into buffers
         let num_indices = {
-            use wgpu::util::{BufferInitDescriptor, DeviceExt};
-            let (stg_vertex, stg_index, num_indices) = BoidBufferBuilder::new().push_boid().build(&self.device);
+            let mut buffer_builder = BoidBufferBuilder::new();
+            for boid in state.boids.iter() {
+                //use wgpu::util::{BufferInitDescriptor, DeviceExt};
+                buffer_builder = buffer_builder.push_boid(boid);
+            }
+            let (stg_vertex, stg_index, num_indices) = buffer_builder.build(&self.device);
             stg_vertex.copy_to_buffer(&mut encoder, &self.vertex_buffer);
             stg_index.copy_to_buffer(&mut encoder, &self.index_buffer);
             
